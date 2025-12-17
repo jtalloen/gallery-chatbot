@@ -6,7 +6,6 @@ import os
 import pypdf
 import docx
 import time
-import tomli
 
 # Compatibility shim for st.experimental_rerun
 try:
