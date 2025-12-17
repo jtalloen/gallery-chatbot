@@ -3,7 +3,7 @@ from PIL import Image
 import base64
 import google.generativeai as genai
 import os
-import PyPDF2
+import pypdf
 import docx
 import time
 import tomli
@@ -160,7 +160,7 @@ if uploaded_files:
 def extract_text_from_file(uploaded_file):
     """Extract text from PDF, DOCX, or TXT file."""
     if uploaded_file.type == "application/pdf":
-        reader = PyPDF2.PdfReader(uploaded_file)
+        reader = pypdf.PdfReader(uploaded_file)
         text = "\n".join(page.extract_text() or '' for page in reader.pages)
         return text
     elif uploaded_file.type in ["application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/msword"]:
