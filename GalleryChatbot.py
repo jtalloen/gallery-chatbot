@@ -55,8 +55,15 @@ with open("logo263.png", "rb") as image_file:
 # Detect if running on Streamlit Cloud (not localhost)
 def is_streamlit_cloud():
     """Check if the app is running on Streamlit Cloud vs localhost."""
-    # Streamlit Cloud always sets this environment variable
-    return os.getenv("STREAMLIT_SHARING_MODE") is not None
+    # Multiple ways to detect Streamlit Cloud environment
+    hostname = os.getenv("HOSTNAME", "")
+    # Streamlit Cloud containers have hostnames starting with "streamlit"
+    # Also check for common cloud environment indicators
+    return (
+        hostname.startswith("streamlit") or
+        os.getenv("STREAMLIT_SERVER_HEADLESS") == "true" or
+        os.path.exists("/mount/src")  # Streamlit Cloud mounts repos here
+    )
 
 # CSS to hide Streamlit branding (only applied on Streamlit Cloud)
 CLOUD_HIDE_CSS = """
