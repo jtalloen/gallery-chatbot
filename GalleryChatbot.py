@@ -69,16 +69,20 @@ def is_streamlit_cloud():
 # Hides menu/profile but keeps GitHub icon visible
 CLOUD_HIDE_CSS = """
         /* Hide all toolbar buttons, then show GitHub button via its unique icon class */
-        [data-testid="stToolbarActionButton"] button {{
+        [data-testid="stToolbarActionButton"] button, 
+         #MainMenu {{
             display: none !important;
+            visibility: hidden !important;
         }}
         [data-testid="stToolbarActionButton"] button:has(.ekuhni81) {{
             display: inline-flex !important;
+            visibility: visible !important;
         }}
         /* Hide bottom-right Streamlit branding */
         #root > div:nth-child(1) > div > div > div,
         #root > div:nth-child(1) > div > div > a {{
             display: none !important;
+            visibility: hidden !important;
         }}
 
 """ if is_streamlit_cloud() else ""
@@ -245,16 +249,6 @@ if not GEMINI_API_KEY:
 ###############################################
 ######## SIDEBAR: FILE UPLOAD & TOOLS ########
 ###############################################
-
-# Debug: Show cloud detection values in sidebar (temporary for testing)
-with st.sidebar.expander("🔍 Debug: Cloud Detection"):
-    hostname = os.getenv("HOSTNAME", "")
-    headless = os.getenv("STREAMLIT_SERVER_HEADLESS", "")
-    mount_exists = os.path.exists("/mount/src")
-    st.write(f"**HOSTNAME:** `{hostname}`")
-    st.write(f"**STREAMLIT_SERVER_HEADLESS:** `{headless}`")
-    st.write(f"**/mount/src exists:** `{mount_exists}`")
-    st.write(f"**is_streamlit_cloud():** `{is_streamlit_cloud()}`")
 
 st.sidebar.header("Context Files")
 # File uploader for LLM context
