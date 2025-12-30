@@ -40,17 +40,19 @@ except AttributeError:
     def rerun():
         raise RerunException(None)
 
-# Set page config for custom theme
+# Read logo file once for both page icon and HTML embedding
+with open("logo263.png", "rb") as image_file:
+    logo_bytes = image_file.read()
+    logo_base64 = base64.b64encode(logo_bytes).decode()
+    logo_image = Image.open("logo263.png")
+
+# Set page config for custom theme (must be first Streamlit command)
 st.set_page_config(
     page_title="Gallery263 Chatbot",
-    page_icon="logo263.png",
+    page_icon=logo_image,  # Use PIL Image to avoid media file caching issues
     layout="centered",
     initial_sidebar_state="collapsed"
 )
-
-# Read and encode logo as base64 for HTML embedding
-with open("logo263.png", "rb") as image_file:
-    logo_base64 = base64.b64encode(image_file.read()).decode()
 
 # Detect if running on Streamlit Cloud (not localhost)
 def is_streamlit_cloud():
@@ -66,27 +68,40 @@ def is_streamlit_cloud():
     )
 
 # CSS to hide Streamlit branding (only applied on Streamlit Cloud)
-# Hides menu/profile but keeps GitHub icon visible
+# Hides "Hosted with Streamlit" badge and share icon (bottom-right)
 CLOUD_HIDE_CSS = """
-        /* Hide main menu and Fork button */
-        .stMainMenu.st-emotion-cache-czk5ss.e7d0y4c8,
-        [data-testid="stToolbarActionButton"]:has([data-testid="stToolbarActionButtonLabel"]) {{
+        /* Hide bottom-right Streamlit Cloud branding badge */
+        /* Target by partial class name match (hash suffixes vary per build) */
+        [class*="_container_"][class*="_gzau"],
+        [class*="_profileContainer_"],
+        [class*="_viewerBadge_"],
+        [class*="viewerBadge"],
+        
+        /* Target by element position - fixed bottom-right elements */
+        div[style*="position: fixed"][style*="bottom"][style*="right"],
+        
+        /* Hide any Streamlit-branded links at bottom */
+        a[href*="streamlit.io/cloud"][style*="position: fixed"],
+        a[href*="share.streamlit.io"],
+        
+        /* Hide default footer */
+        footer,
+        footer[class*="st-emotion-cache"],
+        
+        /* Hide the "Made with Streamlit" and viewer badge container */
+        [data-testid="stDecoration"],
+        .decoration,
+        
+        /* Target bottom-fixed containers that hold branding */
+        div[class*="st-emotion-cache"][style*="bottom: 0"],
+        div[class*="st-emotion-cache"][style*="position: fixed"][style*="right: 0"] {{
             display: none !important;
             visibility: hidden !important;
-        }}
-
-        /* Show GitHub button via its unique icon class */
-        [data-testid="stToolbarActionButton"] button:has(.ekuhni81) {{
-            display: inline-flex !important;
-            visibility: visible !important;
-        }}
-
-        /* Hide bottom-right Streamlit branding */
-        ._container_gzau3_1, 
-        ._profileContainer_gzau3_53,
-        footer {{
-            display: none !important;
-            visibility: hidden !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+            height: 0 !important;
+            width: 0 !important;
+            overflow: hidden !important;
         }}
 """ if is_streamlit_cloud() else ""
 
