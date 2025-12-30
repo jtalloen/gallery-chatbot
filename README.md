@@ -1,8 +1,8 @@
-# Gallery 263 Chatbot
+# Gallery263 Chatbot
 
-A simple Gemini powered chatbot for Gallery 263. The live version is [[here](https://gallery263-chatbot.streamlit.app/)].
+A simple Gemini powered chatbot for Gallery263. The live version is [[here](https://gallery263-chatbot.streamlit.app/)].
 
-
+<br>
 
 | File | Description |
 |:-----|:------------|
