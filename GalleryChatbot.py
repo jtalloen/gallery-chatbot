@@ -68,19 +68,22 @@ def is_streamlit_cloud():
 # CSS to hide Streamlit branding (only applied on Streamlit Cloud)
 # Hides menu/profile but keeps GitHub icon visible
 CLOUD_HIDE_CSS = """
-        /* Hide all toolbar buttons, then show GitHub button via its unique icon class */
-        [data-testid="stToolbarActionButton"] button, 
-         #MainMenu {{
+        /* Hide main menu and Fork button */
+        .stMainMenu.st-emotion-cache-czk5ss.e7d0y4c8,
+        [data-testid="stToolbarActionButton"]:has([data-testid="stToolbarActionButtonLabel"]) {{
             display: none !important;
             visibility: hidden !important;
         }}
+
+        /* Show GitHub button via its unique icon class */
         [data-testid="stToolbarActionButton"] button:has(.ekuhni81) {{
             display: inline-flex !important;
             visibility: visible !important;
         }}
+
         /* Hide bottom-right Streamlit branding */
-        #root > div:nth-child(1) > div > div > div,
-        #root > div:nth-child(1) > div > div > a {{
+        ._container_gzau3_1, 
+        ._profileContainer_gzau3_53 {{
             display: none !important;
             visibility: hidden !important;
         }}
