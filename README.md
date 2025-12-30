@@ -2,6 +2,8 @@
 
 A simple Gemini powered chatbot for Gallery 263. The live version is [[here](https://gallery263-chatbot.streamlit.app/)].
 
+
+
 | File | Description |
 |:-----|:------------|
 | `GalleryChatbot.py` | Main application code with Streamlit chatbot with Gemini AI integration, custom styling, and HuggingFace fallback |
