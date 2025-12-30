@@ -83,11 +83,11 @@ CLOUD_HIDE_CSS = """
 
         /* Hide bottom-right Streamlit branding */
         ._container_gzau3_1, 
-        ._profileContainer_gzau3_53 {{
+        ._profileContainer_gzau3_53,
+        footer {{
             display: none !important;
             visibility: hidden !important;
         }}
-
 """ if is_streamlit_cloud() else ""
 
 # Combined CSS, logo, and header HTML with embedded base64 image
