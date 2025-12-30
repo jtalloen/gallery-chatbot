@@ -52,6 +52,30 @@ st.set_page_config(
 with open("logo263.png", "rb") as image_file:
     logo_base64 = base64.b64encode(image_file.read()).decode()
 
+# Detect if running on Streamlit Cloud (not localhost)
+def is_streamlit_cloud():
+    """Check if the app is running on Streamlit Cloud vs localhost."""
+    # Streamlit Cloud always sets this environment variable
+    return os.getenv("STREAMLIT_SHARING_MODE") is not None
+
+# CSS to hide Streamlit branding (only applied on Streamlit Cloud)
+CLOUD_HIDE_CSS = """
+        /* Hide Streamlit UI elements (only on Streamlit Cloud) */
+
+        #MainMenu, .stMainMenu,
+        header[data-testid="stHeader"],
+        a[href="https://streamlit.io/cloud"],
+        a[href*="share.streamlit.io/user"],
+        img[alt="App Creator Avatar"],
+        [class*="viewerBadge"],
+        [class*="profileContainer"],
+        [class*="profilePreview"] {
+            display: none !important;
+            visibility: hidden !important;
+        }
+
+""" if is_streamlit_cloud() else ""
+
 # Combined CSS, logo, and header HTML with embedded base64 image
 st.markdown(
     f"""
@@ -67,19 +91,7 @@ st.markdown(
         .st-bw {{
             color: #1a3d2b;
         }}
-
-        /* Hide Streamlit UI elements (keep GitHub icon) */
-        #MainMenu, .stMainMenu,
-        ._link_gzau3_10, ._profileContainer_gzau3_53 {{
-            display: none !important;
-        }}
-        /* Hide all toolbar buttons, then show GitHub button via its unique icon class */
-        [data-testid="stToolbarActions"] button {{
-            display: none !important;
-        }}
-        [data-testid="stToolbarActions"] button:has(.ekuhni81) {{
-            display: inline-flex !important;
-        }}
+        {CLOUD_HIDE_CSS}
 
         /* Buttons */
         .stForm button, .stButton>button {{
@@ -181,6 +193,22 @@ st.markdown(
             40%, 60% {{ content: '..'; }}
             80%, 100% {{ content: '...'; }}
         }}
+
+        /* Footer disclaimer */
+        .ai-disclaimer {{
+            text-align: center;
+            color: #888;
+            font-size: 0.85rem;
+            padding: 1rem 0;
+            margin-top: 2rem;
+            # border-top: 1px solid #eee;
+        }}
+
+        /* Reduce bottom padding on main container */
+        .stMainBlockContainer.block-container {{
+            padding-bottom: 2rem !important;
+        }}
+
     </style>
 
     <div class='logo263-header'>
@@ -530,16 +558,21 @@ def chat_stream_with_fallback(messages, context_texts=None, chunk_type="word"):
         messages: List of message strings
         context_texts: Optional list of context strings
         chunk_type: "word" or "char" for streaming animation
+    
+    Yields:
+        Tuples of (chunk, is_fallback_notice) where is_fallback_notice is True only for the final notice
     """
     # Force HuggingFace for testing if enabled
     if FORCE_HF_FOR_TESTING:
         print(f"DEBUG: FORCE_HF_FOR_TESTING enabled, using HuggingFace directly")
-        yield from huggingface_chat_stream(messages, context_texts, chunk_type)
+        for chunk in huggingface_chat_stream(messages, context_texts, chunk_type):
+            yield (chunk, False)
         return
     
     try:
         # Try Gemini first
-        yield from gemini_chat_stream(messages, context_texts, chunk_type)
+        for chunk in gemini_chat_stream(messages, context_texts, chunk_type):
+            yield (chunk, False)
     except Exception as e:
         error_str = str(e).lower()
         # Check if it's a rate limit error (429, ResourceExhausted, etc.)
@@ -553,9 +586,11 @@ def chat_stream_with_fallback(messages, context_texts=None, chunk_type="word"):
         
         if is_rate_limit and USE_FALLBACK_MODEL:
             print(f"DEBUG: Gemini rate limited, switching to HuggingFace fallback")
-            # Show fallback notice as first part of response
-            yield f"<em>[Gemini rate limit reached. Using HuggingFace fallback model: {FALLBACK_MODEL_NAME}.]</em><br><br>"
-            yield from huggingface_chat_stream(messages, context_texts, chunk_type)
+            # Stream HuggingFace response
+            for chunk in huggingface_chat_stream(messages, context_texts, chunk_type):
+                yield (chunk, False)
+            # Yield fallback notice separately (marked as notice, not to be saved)
+            yield (f"<em>Note: Gemini rate limit reached. Response provided by HuggingFace fallback model: {FALLBACK_MODEL_NAME}.</em>", True)
         else:
             # Re-raise the error if it's not a rate limit or fallback is disabled
             raise
@@ -616,15 +651,24 @@ if send_clicked and user_input:
     gemini_messages.append(user_input)
     
     # Stream the bot reply above the input form, styled as a green chat bubble
-    streamed_text = ""
-    for chunk in chat_stream_with_fallback(gemini_messages, context_texts):
+    streamed_text = ""  # What gets saved to history (no notice)
+    display_text = ""   # What gets displayed (includes notice)
+    for chunk, is_notice in chat_stream_with_fallback(gemini_messages, context_texts):
         if chunk:
-            streamed_text += chunk
-            bot_stream.markdown(f"<div class='chat-bubble bot'>{streamed_text}</div>", unsafe_allow_html=True)
+            display_text += chunk
+            if not is_notice:
+                streamed_text += chunk  # Only save actual response, not the notice
+            bot_stream.markdown(f"<div class='chat-bubble bot'>{display_text}</div>", unsafe_allow_html=True)
     
     if not streamed_text:
         streamed_text = "[No response received from Gemini. The model may have finished early or returned no content.]"
         bot_stream.markdown(f"<div class='chat-bubble bot'>{streamed_text}</div>", unsafe_allow_html=True)
     st.session_state['chat_history'].append(("user", user_input))
-    st.session_state['chat_history'].append(("bot", streamed_text if streamed_text else "[No response received from Gemini.]") )
+    st.session_state['chat_history'].append(("bot", streamed_text))
     rerun()
+
+# Footer with AI disclaimer
+st.markdown(
+    "<div class='ai-disclaimer'><em>LLM responses may contain inaccuracies. Please verify important information.</em></div>",
+    unsafe_allow_html=True
+)
