@@ -10,6 +10,21 @@ import time
 import re
 import requests
 import json
+import asyncio
+from mcp import ClientSession
+from mcp.client.streamable_http import streamable_http_client
+
+###############################################
+############ MCP SERVER CONFIGURATION #########
+###############################################
+
+# MCP Server URL - configure based on deployment:
+# Local development: http://127.0.0.1:8000/mcp
+
+MCP_SERVER_URL = os.getenv(
+    "MCP_SERVER_URL",
+    "http://52.38.18.225/mcp"  # Production MCP server URL
+)
 
 ###############################################
 ######### FALLBACK MODEL CONFIGURATION ########
@@ -279,6 +294,138 @@ uploaded_files = st.sidebar.file_uploader(
 if uploaded_files:
     st.sidebar.success(f"{len(uploaded_files)} file(s) uploaded.")
     # You can process and store these files for LLM context here
+
+###############################################
+##### MCP SERVER INTEGRATION: GALLERY INFO #####
+###############################################
+
+# --- MCP SDK async client imports ---
+try:
+    from mcp import ClientSession
+    from mcp.client.streamable_http import streamable_http_client
+    MCP_SDK_AVAILABLE = True
+except ImportError:
+    MCP_SDK_AVAILABLE = False
+
+import httpx
+
+def list_mcp_tools():
+    """Connect to the MCP server and list available tools using the async MCP SDK client."""
+    if not MCP_SDK_AVAILABLE:
+        return "[MCP Python SDK not installed. Please install 'mcp' package.]"
+    async def _list_tools():
+        try:
+            async with streamable_http_client(MCP_SERVER_URL) as (read_stream, write_stream, _):
+                async with ClientSession(read_stream, write_stream) as session:
+                    await session.initialize()
+                    tools = await session.list_tools()
+                    return [tool.title for tool in tools.tools]
+        except Exception as e:
+            return f"[MCP connection error: {e}]"
+    try:
+        return asyncio.run(_list_tools())
+    except RuntimeError:
+        loop = asyncio.get_event_loop()
+        return loop.run_until_complete(_list_tools())
+
+def list_mcp_resources():
+    """Connect to the MCP server and list available resources using the async MCP SDK client (recommended)."""
+    if not MCP_SDK_AVAILABLE:
+        return "[MCP Python SDK not installed. Please install 'mcp' package.]"
+    async def _list_resources():
+        try:
+            async with streamable_http_client(MCP_SERVER_URL) as (read_stream, write_stream, _):
+                async with ClientSession(read_stream, write_stream) as session:
+                    await session.initialize()
+                    resources = await session.list_resources()
+                    return [resource.title for resource in resources.resources]
+        except Exception as e:
+            return f"[MCP connection error: {e}]"
+    try:
+        return asyncio.run(_list_resources())
+    except RuntimeError:
+        loop = asyncio.get_event_loop()
+        return loop.run_until_complete(_list_resources())
+
+def call_mcp_tool(tool_name: str, arguments: dict):
+    """Call an MCP tool with the given arguments."""
+    if not MCP_SDK_AVAILABLE:
+        return {"error": "MCP Python SDK not installed. Please install 'mcp' package."}
+    
+    async def _call_tool():
+        try:
+            async with streamable_http_client(MCP_SERVER_URL) as (read_stream, write_stream, _):
+                async with ClientSession(read_stream, write_stream) as session:
+                    await session.initialize()
+                    result = await session.call_tool(tool_name, arguments)
+                    # Parse the JSON response
+                    if result and hasattr(result, 'content') and result.content:
+                        for content_item in result.content:
+                            if hasattr(content_item, 'text'):
+                                return json.loads(content_item.text)
+                    return {"error": "No content in tool response"}
+        except Exception as e:
+            return {"error": f"MCP tool call error: {e}"}
+    
+    try:
+        return asyncio.run(_call_tool())
+    except RuntimeError:
+        loop = asyncio.get_event_loop()
+        return loop.run_until_complete(_call_tool())
+
+def search_mcp_context(query: str, top_k: int = 3):
+    """
+    Search MCP resources for relevant context using hybrid search.
+    
+    Args:
+        query: The search query
+        top_k: Number of top results to return
+        
+    Returns:
+        Formatted context string for LLM
+    """
+    result = call_mcp_tool("search_resources", {"query": query, "top_k": top_k})
+    
+    if "error" in result:
+        return f"[Error searching MCP: {result['error']}]"
+    
+    if "results" in result and result["results"]:
+        # Format results as context for the LLM
+        context_parts = []
+        for i, res in enumerate(result["results"], 1):
+            source = res.get("source_file", "unknown")
+            score = res.get("score", 0)
+            content = res.get("content", "")
+            
+            context_parts.append(f"--- Context {i} from {source} (relevance: {score:.2f}) ---")
+            context_parts.append(content)
+            context_parts.append("")
+        
+        return "\n".join(context_parts)
+    else:
+        return "[No relevant context found in MCP resources]"
+
+# Consolidated sidebar button for listing MCP context (async)
+with st.sidebar:
+    st.subheader("MCP Context")
+    # Fetch resources and tools asynchronously
+    resources = list_mcp_resources()
+    tools = list_mcp_tools()
+    # Format output as bulleted markdown list
+    md = ""
+    if isinstance(resources, list) and resources:
+        md += "**Files:**\n\n" + "\n".join(f" - `{r}`" for r in resources) + "\n\n"
+    elif isinstance(resources, str):
+        md += f"**Files:**\n\n- {resources}\n\n"
+    else:
+        md += "**Files:**\n\n- [None found]\n\n"
+    if isinstance(tools, list) and tools:
+        md += "**Tools:**\n\n" + "\n".join(f" - `{t}`" for t in tools) + "\n"
+    elif isinstance(tools, str):
+        md += f"**Tools:**\n\n- {tools}\n"
+    else:
+        md += "**Tools:**\n\n- [None found]\n"
+    st.markdown(md)
 
 ###############################################
 ######## FILE EXTRACTION HELPERS ##############
@@ -660,6 +807,48 @@ with st.form("chat_form", clear_on_submit=True):
     with col2:
         send_clicked = st.form_submit_button("Send", use_container_width=True)
 
+def find_referenced_resource(user_input, resource_titles):
+    """
+    Return the resource title if the user_input mentions it, else None.
+    Case-insensitive substring match.
+    """
+    for title in resource_titles:
+        if title.lower() in user_input.lower():
+            return title
+    return None
+
+def get_resource_uri_by_title(title):
+    """
+    Given a resource title (no extension), return the full resource URI (with extension) if it exists.
+    """
+    import os
+    resource_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../gallery263-mcp/resources'))
+    for fname in os.listdir(resource_dir):
+        if os.path.splitext(fname)[0].lower() == title.lower():
+            return f"gallery://resource/{fname}"
+    return None
+
+def fetch_mcp_resource_content(resource_uri):
+    """
+    Fetch the content of a resource from the MCP server using the async MCP SDK client (recommended).
+    """
+    if not MCP_SDK_AVAILABLE:
+        return "[MCP Python SDK not installed. Please install 'mcp' package.]"
+    async def _get_resource():
+        try:
+            async with streamable_http_client(MCP_SERVER_URL) as (read_stream, write_stream, _):
+                async with ClientSession(read_stream, write_stream) as session:
+                    await session.initialize()
+                    result = await session.read_resource(resource_uri)
+                    return result
+        except Exception as e:
+            return f"[MCP connection error: {e}]"
+    try:
+        return asyncio.run(_get_resource())
+    except RuntimeError:
+        loop = asyncio.get_event_loop()
+        return loop.run_until_complete(_get_resource())
+
 if send_clicked and user_input:
     if 'chat_history' not in st.session_state:
         st.session_state['chat_history'] = []
@@ -679,6 +868,25 @@ if send_clicked and user_input:
             gemini_messages.append(msg)
     gemini_messages.append(user_input)
     
+    # === HYBRID SEARCH CONTEXT RETRIEVAL ===
+    # Automatically search MCP resources for relevant context based on user query
+    try:
+        mcp_context = search_mcp_context(user_input, top_k=3)
+        if mcp_context and "[Error" not in mcp_context and "[No relevant" not in mcp_context:
+            context_texts.append(f"[Relevant Gallery Context from Search]\n{mcp_context}")
+    except Exception as e:
+        print(f"Warning: Could not retrieve MCP context: {e}")
+    
+    # Legacy: Check if user input references any MCP resource by name for full document context
+    resources = list_mcp_resources()
+    resource_titles = resources if isinstance(resources, list) else []
+    referenced = find_referenced_resource(user_input, resource_titles)
+    if referenced:
+        resource_uri = get_resource_uri_by_title(referenced)
+        if resource_uri:
+            resource_content = fetch_mcp_resource_content(resource_uri)
+            context_texts.append(f"[Full Resource: {referenced}]\n{resource_content}")
+
     # Stream the bot reply above the input form, styled as a green chat bubble
     streamed_text = ""  # What gets saved to history (no notice)
     display_text = ""   # What gets displayed (includes notice)

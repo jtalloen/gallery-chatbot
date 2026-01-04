@@ -5,3 +5,6 @@ trio>=0.22.0
 pypdf>=4.0.0
 python-docx>=1.0.0
 huggingface-hub>=0.16.0
+# --- MCP Python SDK and dependencies ---
+mcp[cli,fastapi]>=0.2.0
+httpx>=0.28.1
