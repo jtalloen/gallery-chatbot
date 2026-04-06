@@ -8,3 +8,6 @@ huggingface-hub>=0.16.0
 # --- MCP Python SDK and dependencies ---
 mcp[cli,fastapi]>=0.2.0
 httpx>=0.28.1
+# --- DeepEval and Confident AI for LLM tracing & evaluation ---
+deepeval>=0.21.0
+python-dotenv>=1.0.0

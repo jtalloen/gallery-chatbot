@@ -14,6 +14,26 @@ import asyncio
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
+# CRITICAL: Set Confident AI API key from Streamlit secrets BEFORE importing DeepEval
+# This must happen before deepeval.tracing is imported
+if "CONFIDENTAI_API_TOKEN" in st.secrets:
+    os.environ["CONFIDENT_API_KEY"] = st.secrets["CONFIDENTAI_API_TOKEN"]
+if "CONFIDENT_TRACE_FLUSH" in st.secrets:
+    os.environ["CONFIDENT_TRACE_FLUSH"] = st.secrets["CONFIDENT_TRACE_FLUSH"]
+
+# DeepEval & Confident AI imports for LLM tracing (now API key is set)
+try:
+    from deepeval.tracing import observe
+    from dotenv import load_dotenv
+    load_dotenv()  # Load .streamlit/secrets as env vars
+    DEEPEVAL_AVAILABLE = True
+except ImportError:
+    DEEPEVAL_AVAILABLE = False
+    def observe(name=None):  # Fallback decorator if deepeval not installed
+        def decorator(func):
+            return func
+        return decorator
+
 ###############################################
 ############ MCP SERVER CONFIGURATION #########
 ###############################################
@@ -32,16 +52,25 @@ MCP_SERVER_URL = os.getenv(
 
 # Toggle this to enable/disable HuggingFace Inference API fallback when Gemini rate limits are hit
 USE_FALLBACK_MODEL = True  # Set to False to disable HuggingFace fallback
-FALLBACK_MODEL_NAME = "google/gemma-3-27b-it"  # HuggingFace model to use as fallback
+FALLBACK_MODEL_NAME = "google/gemma-4-31b-it"  # HuggingFace model to use as fallback
 HF_API_TOKEN = st.secrets["HF_API_TOKEN"] if "HF_API_TOKEN" in st.secrets else ""  # Get from Streamlit secrets
 FORCE_HF_FOR_TESTING = False  # Set to True to force HuggingFace for testing (bypass Gemini)
 
-# Debug: Print token status
-print(f"DEBUG: HF_API_TOKEN is set: {bool(HF_API_TOKEN)}")
-if HF_API_TOKEN:
-    print(f"DEBUG: HF_API_TOKEN starts with: {HF_API_TOKEN[:10]}...")
-print(f"DEBUG: FORCE_HF_FOR_TESTING: {FORCE_HF_FOR_TESTING}")
-print(f"DEBUG: USE_FALLBACK_MODEL: {USE_FALLBACK_MODEL}")
+###############################################
+############### SYSTEM PROMPT ################
+###############################################
+
+# Edit this prompt to define the assistant's role, tone, and Gallery263-specific behaviour.
+# It is injected as a system instruction for both Gemini and HuggingFace models.
+SYSTEM_PROMPT = """
+GOAL: Help the user with specific writing and research tasks related to Gallery263 grant applications. Provide clear, concise, and actionable assistance.
+TONE: Friendly and conversational but professional, efficient and supportive to help the user with their tasks.
+GUIDELINES: 
+- Always prioritize providing accurate and relevant information based on the user's query and the context available.
+- If the user asks for information that is not in the provided context, do not make assumptions
+- If the user asks about current information about Gallery263 including staff, board members, or current shows, use the https://gallery263.org/ website to locate the up-to-date information 
+- If the user asks for help with writing grant applications, provide clear and structured advice, including potential language to use, key points to highlight, and how to frame the organization's strengths based on the context.
+"""
 
 ###############################################
 ######### COMPATIBILITY & PAGE CONFIG #########
@@ -549,6 +578,7 @@ def extract_gemini_text(response):
         print(f"DEBUG: extract_gemini_text error: {e}, response type: {type(response)}")
         return ""
 
+@observe(name="gemini_chat_completion")
 def gemini_chat(messages, context_texts=None):
     """Send chat history and context to Gemini LLM and return the response."""
     if not GEMINI_API_KEY:
@@ -561,12 +591,18 @@ def gemini_chat(messages, context_texts=None):
         context_prompt = "\n\n".join(context_texts)
         messages = [f"[Context for LLM]\n{context_prompt}"] + messages
     
+    config = None
+    if SYSTEM_PROMPT and SYSTEM_PROMPT.strip():
+        from google.genai import types as _types
+        config = _types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT)
     response = client.models.generate_content(
         model=model,
-        contents=messages
+        contents=messages,
+        config=config
     )
     return extract_gemini_text(response) if response else "[No response received from Gemini.]"
 
+@observe(name="gemini_chat_stream_with_tools")
 def gemini_chat_stream(messages, context_texts=None, chunk_type="word", enable_tools=True):
     """
     Stream chat history and context to Gemini LLM with tool support and yield the response as it arrives.
@@ -600,6 +636,8 @@ def gemini_chat_stream(messages, context_texts=None, chunk_type="word", enable_t
     try:
         # Build configuration with tools if enabled
         config_kwargs = {}
+        if SYSTEM_PROMPT and SYSTEM_PROMPT.strip():
+            config_kwargs['system_instruction'] = SYSTEM_PROMPT
         if enable_tools and GEMINI_TOOLS:
             config_kwargs['tools'] = GEMINI_TOOLS
             print(f"DEBUG: Gemini tools enabled (Google Search + Code Execution)")
@@ -648,6 +686,7 @@ def gemini_chat_stream(messages, context_texts=None, chunk_type="word", enable_t
 ####### HUGGINGFACE INFERENCE API FALLBACK ####
 ###############################################
 
+@observe(name="huggingface_fallback_response")
 def huggingface_chat_stream(messages, context_texts=None, chunk_type="word"):
     """
     Stream chat history and context using HuggingFace Inference API (fallback).
@@ -669,12 +708,17 @@ def huggingface_chat_stream(messages, context_texts=None, chunk_type="word"):
         # Build the chat messages list in proper format
         chat_messages = []
         
-        # Add context as system message if available
+        # Build system message from SYSTEM_PROMPT and/or context
+        system_parts = []
+        if SYSTEM_PROMPT and SYSTEM_PROMPT.strip():
+            system_parts.append(SYSTEM_PROMPT.strip())
         if context_texts:
             context_prompt = "\n\n".join(context_texts)
+            system_parts.append(f"Here is some context:\n\n{context_prompt}")
+        if system_parts:
             chat_messages.append({
                 "role": "system",
-                "content": f"You are a helpful assistant. Here is some context:\n\n{context_prompt}"
+                "content": "\n\n".join(system_parts)
             })
         
         # Add message history (alternate user/assistant)
